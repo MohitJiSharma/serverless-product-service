@@ -1,0 +1,74 @@
+const { DynamoDBClient, UpdateItemCommand, ScanCommand } = require('@aws-sdk/client-dynamodb');
+
+const dynamoDBClient = new DynamoDBClient({ region: process.env.REGION });
+
+exports.updateProductImage = async (event) => {
+
+    console.log("S3 triggered event -->::" + JSON.stringify(event));
+
+    try {
+        const tableName = process.env.DYNAMO_PROD_TABLE;
+
+        const record = event.Records[0];
+
+        const bucketName = record.s3.bucket.name;
+
+        const fileName = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
+
+
+        const imageUrl = `https://${bucketName}.s3.amazonaws.com/${fileName}`;
+
+        const scanCmd = new ScanCommand({
+            TableName: tableName,
+            FilterExpression: "fileName = :fileName",
+            ExpressionAttributeValues: {
+                ":fileName": { S: fileName }
+            }
+        });
+
+        const scanResults = await dynamoDBClient.send(scanCmd);
+
+        if (!scanResults.Items || scanResults.Items.length === 0) {
+            return {
+                statusCode: 200,
+                body: JSON.stringify({
+                    msg: "No file found"
+                })
+            }
+        }
+
+        const productId =  scanResults.Items[0].id.S;
+
+        const updateItemCmd = new UpdateItemCommand({
+            TableName: tableName,
+            Key: { id: { S: productId } },
+            UpdateExpression: "SET imageUrl = :imageUrl",
+            ExpressionAttributeValues: {
+                ":imageUrl": {S:imageUrl}
+            }
+        });
+
+        await dynamoDBClient.send(updateItemCmd);
+
+        return {
+            statusCode: 200,
+
+            body: JSON.stringify({
+                msg: "Success",
+                imageUrl: imageUrl
+            })
+        }
+
+
+    } catch (error) {
+        console.log(error);
+        return {
+            statusCode: 500,
+
+            body: JSON.stringify({
+                msg: "Failed",
+                error: error.message
+            })
+        }
+    }
+}

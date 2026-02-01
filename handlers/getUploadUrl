@@ -1,0 +1,76 @@
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const { DynamoDBClient, PutItemCommand } = require('@aws-sdk/client-dynamodb');
+const crypto = require('crypto');
+
+const s3Client = new S3Client({ region: process.env.REGION });
+
+const dynamoDBClient = new DynamoDBClient({ region: process.env.REGION });
+
+
+
+exports.getUploadUrl = async (event) => {
+    try {
+        const s3Bucket = process.env.S3_BUCKET;
+
+        const { fileName, fileType, productName, description, productPrice, quantity, category, email } = JSON.parse(event.body);
+
+        if(!fileName || !fileType || !productName || !description || !productPrice || !quantity || !category || !email){
+            return {
+                statusCode: 400,
+                body: JSON.stringify({
+                    msg:"Mandatory fields are missing"
+                })
+            }
+        }
+
+        const putCommand = new PutObjectCommand({
+            Bucket: s3Bucket,
+            Key: fileName,
+            ContentType: fileType
+        });
+
+        const signedUrl = await getSignedUrl(s3Client, putCommand, {expiresIn:3600});
+
+        const productId = crypto.randomUUID();
+        const dynamoProdTable = process.env.DYNAMO_PROD_TABLE;
+
+        const putItemCmd = new PutItemCommand({
+            TableName: dynamoProdTable,
+            Item:{
+                id:{S:productId},
+                fileName:{S:fileName},
+                productName:{S:productName},
+                productDescription:{S:description},
+                productPrice:{S:productPrice.toString(0)},
+                productQuantity:{S: quantity.toString()},
+                email:{S:email},
+                isApproved:{BOOL: false},
+                createdAt:{S: new Date().toISOString()}
+            }
+        });
+
+        const dynamoPutResp = await dynamoDBClient.send(putItemCmd);
+
+        return {
+            statusCode: 200,
+            body: JSON.stringify({
+                msg:"success",
+                signedUrl: signedUrl
+
+            })
+        }
+
+
+
+    } catch (error) {
+        console.log(error);
+         return {
+                statusCode: 500,
+                body: JSON.stringify({
+                    msg: error.message
+                })
+            }
+
+    }
+};

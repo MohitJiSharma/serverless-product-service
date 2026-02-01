@@ -5,10 +5,41 @@ service: products
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs24.x
   region: ap-southeast-2
-environment:
-  APP: ProductService
+  httpApi:
+    authorizers:
+      myCognitoAuth:
+        identitySource: $request.header.Authorization
+        issuerUrl: https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_fu4wouJoI
+        audience: 
+          - xxxxxx
+  environment:
+    APP: ProductService
+    REGION: ap-southeast-2
+    DYNAMO_PROD_TABLE: Products
+    S3_BUCKET: product-images-mohit-dev-123z-new
+    SNS_TOPIC_ARN: arn:aws:sns:ap-southeast-2:157539276341:ProductCleanUpTopic
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - s3:PutObject
+        - s3:GetObject
+        
+      Resource: arn:aws:s3:::product-images-mohit-dev-123z-new/*
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:Scan
+        - dynamodb:DeleteItem
+      Resource: arn:aws:dynamodb:ap-southeast-2:157539276341:table/Products
+    - Effect: Allow
+      Action: 
+        - sns:Publish
+      Resource: arn:aws:sns:ap-southeast-2:157539276341:ProductCleanUpTopic
+
 
   # Uncomment to easily set up a custom domain. Read the docs for more details:
   # https://www.serverless.com/framework/docs/providers/aws/guide/domains
@@ -31,12 +62,36 @@ resources:
         KeySchema:
           -  AttributeName: id
              KeyType: HASH  
+    ProductCleanUpTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ProductCleanUpTopic
+    ProductCleanUpSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: arn:aws:sns:ap-southeast-2:157539276341:ProductCleanUpTopic
+        Protocol: email
+        Endpoint: Mohit1508SharmaLearner@Gmail.Com
 
 
 functions:
-  hello:
-    handler: handler.hello
+  getUploadUrl:
+    handler: handlers/getUploadUrl.getUploadUrl
     events:
       - httpApi:
-          path: /
-          method: get
+          path: /upload-product
+          method: post
+          authorizer:
+            name: myCognitoAuth
+  updateProductImage:
+    handler: handlers/updateProductImage.updateProductImage
+    events:
+      - s3:
+          bucket: product-images-mohit-dev-123z-new
+          event: s3:ObjectCreated:Put
+          existing: true
+  updatePrcleanUpProducts:
+    handler: handlers/cleanUpProducts.cleanUpProducts
+    events:
+      - schedule: rate(240000 minutes)
+          
